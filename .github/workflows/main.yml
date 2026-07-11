@@ -1,0 +1,52 @@
+name: HTML to APK (SwipeClean Gallery)
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Cordova
+        run: npm install -g cordova
+
+      - name: Create Cordova Project
+        run: |
+          # إنشاء مشروع كوردوفا بالاسم الجديد المعبر عن التطبيق
+          cordova create SwipeClean com.whitefoxstudios.swipeclean SwipeClean
+          cd SwipeClean
+          cordova platform add android
+          
+          # حقن صلاحيات الأندرويد لضمان الوصول للملفات وحذف الصور من الجوال
+          sed -i '/<\/widget>/i \    <config-file parent="/*" target="AndroidManifest.xml">\n        <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n        <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n        <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n    </config-file>' config.xml
+          
+          # تنظيف المجلد الافتراضي ونقل ملف الـ index.html الخاص بك
+          rm -rf www/*
+          cp -r ../* www/ || true
+          
+          # دمج أيقونة التطبيق التلقائي إذا تم رفع صورة باسم icon.png
+          if [ -f "../icon.png" ]; then
+            cp ../icon.png www/icon.png
+            sed -i '/<\/widget>/i \    <icon src="www/icon.png" \/>' config.xml
+          fi
+          
+          # بناء التطبيق لملف APK
+          cordova build android --device
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwipeClean-Gallery-APK
+          path: SwipeClean/platforms/android/app/build/outputs/apk/debug/app-debug.apk
