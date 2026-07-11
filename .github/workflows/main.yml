@@ -29,8 +29,8 @@ jobs:
           cd SwipeClean
           cordova platform add android
           
-          # حقن صلاحيات الأندرويد لضمان الوصول للملفات وحذف الصور من الجوال
-          sed -i '/<\/widget>/i \    <config-file parent="/*" target="AndroidManifest.xml">\n        <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n        <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n        <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n    </config-file>' config.xml
+          # حقن الصلاحيات بطريقة آمنة ومتوافقة تماماً مع معايير XML الخاصة بأندرويد
+          sed -i '/<\/widget>/i \    <config-file parent="/*" target="app/src/main/AndroidManifest.xml">\n        <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n        <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n        <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n    </config-file>' config.xml
           
           # تنظيف المجلد الافتراضي ونقل ملف الـ index.html الخاص بك
           rm -rf www/*
