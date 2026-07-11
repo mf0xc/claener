@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0d0e12">
+  <title>SwipeClean Gallery</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            app: { bg: '#0d0e12', card: '#16181f', accent: '#3b82f6' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      background-color: #0d0e12;
+      color: #e2e8f0;
+      overscroll-behavior: none;
+      touch-action: pan-y;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    .card-stack { perspective: 1200px; }
+    .swipe-card {
+      will-change: transform, opacity;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.3s ease;
+    }
+    .swipe-card.dragging { transition: none !important; }
+    .keep-overlay, .delete-overlay {
+      opacity: 0;
+      transition: opacity 0.08s linear;
+      pointer-events: none;
+    }
+    .glow-green { box-shadow: 0 0 30px rgba(34, 197, 94, 0.5), inset 0 0 20px rgba(34, 197, 94, 0.1); }
+    .glow-red { box-shadow: 0 0 30px rgba(239, 68, 68, 0.5), inset 0 0 20px rgba(239, 68, 68, 0.1); }
+    .terminal-line {
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+      font-size: 0.7rem;
+      line-height: 1.4;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.85); opacity: 0.6; }
+      100% { transform: scale(1.3); opacity: 0; }
+    }
+    .sync-pulse { position: relative; }
+    .sync-pulse::before {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      border: 2px solid #3b82f6;
+      animation: pulse-ring 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    }
+    .glass-panel {
+      background: rgba(22, 24, 31, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-x-hidden bg-[#0d0e12] text-gray-100 antialiased selection:bg-blue-500/30">
+
+  <div id="app" class="relative h-full w-full max-w-md mx-auto flex flex-col shadow-2xl">
+
+    <!-- Header -->
+    <header class="flex items-center justify-between px-5 py-4 border-b border-white/5 z-40 bg-[#0d0e12]/80 backdrop-blur-md sticky top-0">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-900/30">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        </div>
+        <div>
+          <h1 class="text-base font-bold tracking-tight leading-none">SwipeClean</h1>
+          <div class="text-[10px] text-gray-500 font-medium tracking-wide uppercase mt-0.5">Gallery Manager</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <div id="stats-badge" class="hidden px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold text-gray-400">
+          <span id="remaining-count">0</span>
+        </div>
+        <button id="btn-terminal-toggle" class="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- STATE 1: Sync Dashboard -->
+    <section id="sync-screen" class="flex-1 flex flex-col items-center justify-center p-6 space-y-8">
+      <div class="relative">
+        <div class="w-28 h-28 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-purple-500 flex items-center justify-center sync-pulse shadow-xl shadow-blue-900/20">
+          <svg class="w-11 h-11 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+        </div>
+      </div>
+
+      <div class="text-center space-y-3">
+        <h2 class="text-3xl font-extrabold text-white tracking-tight">Sync Gallery</h2>
+        <p class="text-gray-400 text-sm max-w-[260px] leading-relaxed">Connect to on-device storage to review and clean your media. All processing happens locally.</p>
+      </div>
+
+      <div class="w-full space-y-4">
+        <button id="btn-sync" class="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all font-bold text-white shadow-lg shadow-blue-900/25 relative overflow-hidden group">
+          <span class="relative z-10 flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            Sync Local Gallery
+          </span>
+          <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
+        </button>
+        <div class="flex items-center justify-center gap-2 text-[11px] text-gray-600">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+          <span>Encrypted on-device processing</span>
+        </div>
+      </div>
+
+      <!-- Inline Terminal -->
+      <div class="w-full glass-panel rounded-xl p-3 h-36 overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[10px] text-gray-500 font-mono uppercase tracking-widest font-bold">System Log</div>
+          <div class="flex gap-1.5">
+            <div class="w-2 h-2 rounded-full bg-red-500/60"></div>
+            <div class="w-2 h-2 rounded-full bg-yellow-500/60"></div>
+            <div class="w-2 h-2 rounded-full bg-green-500/60"></div>
+          </div>
+        </div>
+        <div id="terminal-sync" class="flex-1 overflow-y-auto scrollbar-hide space-y-1">
+          <div class="terminal-line text-gray-600">> Initializing SwipeClean kernel...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATE 2: Swiper -->
+    <section id="swiper-screen" class="hidden flex-1 flex flex-col relative overflow-hidden">
+      <div class="flex-1 relative flex items-center justify-center px-5 card-stack">
+        <div id="card-container" class="relative w-full aspect-[3/4] max-w-sm">
+          <!-- Cards injected dynamically -->
+        </div>
+
+        <div id="empty-state" class="hidden absolute inset-0 flex flex-col items-center justify-center text-center p-8">
+          <div class="w-20 h-20 rounded-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center mb-5 border border-white/5 shadow-2xl">
+            <svg class="w-9 h-9 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7"></path></svg>
+          </div>
+          <h3 class="text-xl font-bold text-white">All Caught Up</h3>
+          <p class="text-gray-400 text-sm mt-2 max-w-[240px]">You have reviewed every image in this sync batch.</p>
+          <button id="btn-finish" class="mt-8 px-8 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold transition-all active:scale-95">
+            View Session Report
+          </button>
+        </div>
+      </div>
+
+      <!-- Swipe Hints -->
+      <div class="py-6 pb-8 flex items-center justify-center gap-10 text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+        <div class="flex flex-col items-center gap-2">
+          <div class="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+            <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </div>
+          <span>Delete</span>
+        </div>
+        <div class="h-8 w-px bg-white/5"></div>
+        <div class="flex flex-col items-center gap-2">
+          <div class="w-10 h-10 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+            <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+          </div>
+          <span>Keep</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATE 3: Results -->
+    <section id="results-screen" class="hidden flex-1 flex flex-col p-5 overflow-y-auto scrollbar-hide">
+      <div class="mb-2">
+        <h2 class="text-2xl font-extrabold text-white tracking-tight">Session Report</h2>
+        <p class="text-gray-500 text-sm mt-1">Review your cleanup performance</p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-6 mt-4">
+        <div class="glass-panel rounded-2xl p-4 border-l-2 border-green-500/50">
+          <div class="text-gray-500 text-[10px] uppercase tracking-wider font-bold mb-1">Space Saved</div>
+          <div id="space-saved" class="text-2xl font-black text-green-400 tracking-tight">0 MB</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border-l-2 border-red-500/50">
+          <div class="text-gray-500 text-[10px] uppercase tracking-wider font-bold mb-1">Deleted</div>
+          <div id="deleted-count" class="text-2xl font-black text-red-400 tracking-tight">0</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border-l-2 border-blue-500/50">
+          <div class="text-gray-500 text-[10px] uppercase tracking-wider font-bold mb-1">Kept</div>
+          <div id="kept-count" class="text-2xl font-black text-blue-400 tracking-tight">0</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border-l-2 border-gray-500/50">
+          <div class="text-gray-500 text-[10px] uppercase tracking-wider font-bold mb-1">Reviewed</div>
+          <div id="reviewed-count" class="text-2xl font-black text-white tracking-tight">0</div>
+        </div>
+      </div>
+
+      <div class="flex-1 glass-panel rounded-2xl p-4 overflow-hidden flex flex-col min-h-[200px]">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[10px] text-gray-500 font-mono uppercase tracking-widest font-bold">Rolling Session Log</div>
+          <button id="btn-export" class="text-[11px] text-blue-400 hover:text-blue-300 font-semibold transition-colors">Export JSON</button>
+        </div>
+        <div id="session-log" class="flex-1 overflow-y-auto scrollbar-hide space-y-0 divide-y divide-white/5">
+          <!-- Log entries injected here -->
+        </div>
+      </div>
+
+      <button id="btn-restart" class="mt-5 w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] font-bold text-white transition-all shadow-lg shadow-blue-900/20">
+        Start New Session
+      </button>
+    </section>
+
+    <!-- Terminal Drawer (Bottom Sheet) -->
+    <div id="terminal-drawer" class="absolute bottom-0 left-0 right-0 bg-[#0d0e12]/95 backdrop-blur-xl border-t border-white/10 transform translate-y-full transition-transform duration-300 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <div class="flex items-center gap-2">
+          <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+          <span class="text-[10px] font-mono text-gray-400 uppercase tracking-widest font-bold">Live Terminal</span>
+        </div>
+        <button id="btn-close-terminal" class="p-1.5 rounded-lg hover:bg-white/5 text-gray-500 hover:text-white transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+        </button>
+      </div>
+      <div id="terminal-output" class="h-56 overflow-y-auto p-4 space-y-1 scrollbar-hide">
+        <div class="terminal-line text-gray-600">> Terminal initialized. Waiting for commands...</div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="absolute top-20 left-1/2 transform -translate-x-1/2 bg-gray-900/90 backdrop-blur-xl text-white px-5 py-2.5 rounded-full text-sm font-semibold opacity-0 pointer-events-none transition-all duration-300 z-50 border border-white/10 shadow-2xl flex items-center gap-2">
+      <span id="toast-icon"></span>
+      <span id="toast-message">Notification</span>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // CAPACITOR RUNTIME & DIRECTORY ENUM
+    // ============================================================
+
+    // Self-contained Directory enum matching @capacitor/filesystem
+    const Directory = window.Directory || {
+      External: 'EXTERNAL',
+      ExternalStorage: 'EXTERNAL_STORAGE',
+      Data: 'DATA',
+      Documents: 'DOCUMENTS',
+      Cache: 'CACHE',
+      Library: 'LIBRARY'
+    };
+
+    const Plugins = (window.Capacitor && window.Capacitor.Plugins) ? window.Capacitor.Plugins : {};
+    const Filesystem = Plugins.Filesystem || null;
+    const Permissions = Plugins.Permissions || null;
+    const isNative = () => window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+
+    // ============================================================
+    // APPLICATION STATE
+    // ============================================================
+
+    const AppState = {
+      images: [],
+      keptImages: [],
+      deletedImages: [],
+      currentIndex: 0,
+      sessionStats: { reviewed: 0, kept: 0, deleted: 0, bytesSaved: 0 },
+      isSyncing: false,
+      terminalOpen: false,
+      touch: { startX: 0, startY: 0, startTime: 0, currentX: 0, currentY: 0, isDragging: false }
+    };
+
+    // ============================================================
+    // TERMINAL & NOTIFICATION SYSTEM
+    // ============================================================
+
+    function logToTerminal(message, type = 'info') {
+      const terminals = [document.getElementById('terminal-output'), document.getElementById('terminal-sync')];
+      const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      const colorMap = {
+        error: 'text-red-400',
+        success: 'text-green-400',
+        warn: 'text-yellow-400',
+        system: 'text-blue-400',
+        info: 'text-gray-400'
+      };
+      const colorClass = colorMap[type] || colorMap.info;
+
+      const line = document.createElement('div');
+      line.className = `terminal-line ${colorClass}`;
+      line.textContent = `[${timestamp}] ${message}`;
+
+      terminals.forEach(term => {
+        if (!term) return;
+        term.appendChild(line.cloneNode(true));
+        term.scrollTop = term.scrollHeight;
+      });
+
+      console.log(`[${type.toUpperCase()}] ${message}`);
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toast');
+      const msgEl = document.getElementById('toast-message');
+      const iconEl = document.getElementById('toast-icon');
+
+      const icons = {
+        success: '<svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>',
+        error: '<svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>',
+        warn: '<svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>',
+        info: '<svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+      };
+
+      msgEl.textContent = message;
+      iconEl.innerHTML = icons[type] || icons.info;
+      toast.classList.remove('opacity-0', 'translate-y-2');
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+      }, 2800);
+    }
+
+    // ============================================================
+    // CAPACITOR FILESYSTEM INTEGRATION
+    // ============================================================
+
+    async function requestStoragePermissions() {
+      logToTerminal('Initiating storage permission request...', 'system');
+
+      try {
+        if (!isNative()) {
+          logToTerminal('Not running on native platform. Skipping permission request.', 'warn');
+          return true;
+        }
+
+        if (!Filesystem) {
+          throw new Error('@capacitor/filesystem plugin is not registered in the native bridge.');
+        }
+
+        // Use Capacitor Permissions plugin for explicit storage permission requests
+        // This is the standard approach for Android external storage access
+        if (Permissions) {
+          const storagePerm = await Permissions.query({ name: 'storage' });
+          logToTerminal('Storage permission state: ' + storagePerm.state, 'info');
+
+          if (storagePerm.state === 'prompt' || storagePerm.state === 'denied') {
+            const requestResult = await Permissions.request({ name: 'storage' });
+            logToTerminal('Permission request result: ' + requestResult.state, 'info');
+            if (requestResult.state !== 'granted') {
+              throw new Error('User denied storage permission. Enable it in Settings > Apps > SwipeClean > Permissions.');
+            }
+          }
+        } else {
+          logToTerminal('Permissions plugin not available. Relying on implicit Filesystem grants.', 'warn');
+        }
+
+        return true;
+      } catch (error) {
+        logToTerminal('Permission workflow failed: ' + error.message, 'error');
+        showToast('Storage access required', 'error');
+        return false;
+      }
+    }
+
+    async function syncLocalGallery() {
+      if (AppState.isSyncing) return;
+      AppState.isSyncing = true;
+
+      const btn = document.getElementById('btn-sync');
+      const originalContent = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="flex items-center justify-center gap-2 animate-pulse"><svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Scanning storage...</span>';
+
+      logToTerminal('Starting gallery sync workflow...', 'system');
+
+      try {
+        const permitted = await requestStoragePermissions();
+        if (!permitted) {
+          AppState.isSyncing = false;
+          btn.disabled = false;
+          btn.innerHTML = originalContent;
+          return;
+        }
+
+        if (!Filesystem) {
+          logToTerminal('Filesystem plugin unavailable. Activating DEMO mode with synthetic images.', 'warn');
+          await simulateDelay(600);
+          AppState.images = generateDemoImages(15);
+          logToTerminal('DEMO: Loaded ' + AppState.images.length + ' synthetic images.', 'success');
+        } else {
+          logToTerminal('Executing Filesystem.readdir on Directory.External...', 'system');
+
+          const result = await Filesystem.readdir({
+            path: '',
+            directory: Directory.External
+          });
+
+          logToTerminal('Filesystem returned ' + result.files.length + ' entries.', 'success');
+
+          const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'raw'];
+          AppState.images = result.files
+            .filter(file => {
+              const ext = (file.name.split('.').pop() || '').toLowerCase();
+              return imageExtensions.includes(ext);
+            })
+            .map(file => ({
+              uri: file.uri || '',
+              name: file.name,
+              size: file.size || 0,
+              path: file.path || file.name
+            }));
+
+          logToTerminal('Filtered ' + AppState.images.length + ' image files from storage.', 'success');
+        }
+
+        showToast(AppState.images.length + ' images loaded', 'success');
+
+        setTimeout(() => {
+          showScreen('swiper');
+          renderCardDeck();
+        }, 400);
+
+      } catch (error) {
+        logToTerminal('Gallery sync critical failure: ' + error.message, 'error');
+        showToast('Sync failed. Check terminal.', 'error');
+      } finally {
+        AppState.isSyncing = false;
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+      }
+    }
+
+    // EXACT FUNCTION AS REQUESTED BY SPECIFICATION
+    async function deleteImageFile(imageUri) {
+      logToTerminal('Executing deletion workflow for: ' + imageUri, 'warn');
+      try {
+        if (!Filesystem) {
+          throw new Error('Native Filesystem bridge is not available. File cannot be removed.');
+        }
+
+        await Filesystem.deleteFile({
+          path: imageUri,
+          directory: Directory.External
+        });
+
+        logToTerminal('Deletion successful: ' + imageUri, 'success');
+        return { success: true, error: null };
+      } catch (error) {
+        const errorMsg = 'Deletion blocked or failed: ' + (error.message || JSON.stringify(error));
+        logToTerminal(errorMsg, 'error');
+        showToast('Delete failed — see terminal log', 'error');
+        return { success: false, error: error };
+      }
+    }
+
+    // ============================================================
+    // DEMO DATA (Browser Fallback)
+    // ============================================================
+
+    function generateDemoImages(count) {
+      const images = [];
+      const sizes = [1.2, 2.5, 0.8, 3.1, 1.8, 4.2, 0.5, 2.9, 1.1, 3.5, 2.2, 0.9, 5.1, 1.4, 2.7];
+      for (let i = 0; i < count; i++) {
+        images.push({
+          uri: 'demo_image_' + (i + 1) + '.jpg',
+          name: 'IMG_' + (20240700 + i) + '_' + Math.floor(Math.random() * 9000 + 1000) + '.jpg',
+          size: Math.floor(sizes[i % sizes.length] * 1024 * 1024),
+          path: 'Pictures/Camera/IMG_' + (20240700 + i) + '.jpg'
+        });
+      }
+      return images;
+    }
+
+    function simulateDelay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // ============================================================
+    // UI NAVIGATION
+    // ============================================================
+
+    function showScreen(name) {
+      ['sync', 'swiper', 'results'].forEach(s => {
+        document.getElementById(s + '-screen').classList.add('hidden');
+      });
+      document.getElementById(name + '-screen').classList.remove('hidden');
+      document.getElementById('stats-badge').classList.toggle('hidden', name !== 'swiper');
+    }
+
+    function updateStatsBadge() {
+      const remaining = Math.max(0, AppState.images.length - AppState.currentIndex);
+      document.getElementById('remaining-count').textContent = remaining;
+    }
+
+    // ============================================================
+    // CARD DECK RENDERER
+    // ============================================================
+
+    function renderCardDeck() {
+      const container = document.getElementById('card-container');
+      container.innerHTML = '';
+
+      if (AppState.currentIndex >= AppState.images.length) {
+        document.getElementById('empty-state').classList.remove('hidden');
+        return;
+      }
+      document.getElementById('empty-state').classList.add('hidden');
+
+      const cardsToRender = Math.min(3, AppState.images.length - AppState.currentIndex);
+
+      for (let i = cardsToRender - 1; i >= 0; i--) {
+        const imageIndex = AppState.currentIndex + i;
+        const image = AppState.images[imageIndex];
+        const card = createCardElement(image, imageIndex, i);
+        container.appendChild(card);
+      }
+
+      updateStatsBadge();
+      attachTouchEvents();
+    }
+
+    function createCardElement(image, index, stackPosition) {
+      const card = document.createElement('div');
+      card.className = 'swipe-card absolute inset-0 rounded-3xl overflow-hidden shadow-2xl border border-white/5';
+      card.style.zIndex = 30 - stackPosition;
+      card.style.transform = `scale(${1 - stackPosition * 0.04}) translateY(${stackPosition * 10}px)`;
+      card.style.opacity = stackPosition === 0 ? '1' : '0.5';
+      card.dataset.index = index;
+      card.dataset.path = image.path;
+      card.dataset.size = image.size;
+      card.dataset.name = image.name;
+
+      const img = document.createElement('img');
+      img.src = image.uri.startsWith('demo_') 
+        ? 'https://picsum.photos/seed/swipeclean' + index + '/400/600' 
+        : image.uri;
+      img.className = 'w-full h-full object-cover pointer-events-none';
+      img.draggable = false;
+      img.alt = image.name;
+      img.loading = 'eager';
+
+      const gradient = document.createElement('div');
+      gradient.className = 'absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none';
+
+      const info = document.createElement('div');
+      info.className = 'absolute bottom-0 left-0 right-0 p-5 pointer-events-none';
+      info.innerHTML = `
+        <div class="text-white font-bold text-lg truncate tracking-tight">${image.name}</div>
+        <div class="text-gray-400 text-[11px] mt-1 font-mono">${formatBytes(image.size)} <span class="text-gray-600">|</span> ${image.path}</div>
+      `;
+
+      const keepOverlay = document.createElement('div');
+      keepOverlay.className = 'keep-overlay absolute inset-0 flex items-center justify-center bg-green-500/10';
+      keepOverlay.innerHTML = `
+        <div class="border-[3px] border-green-400 rounded-2xl px-8 py-4 transform -rotate-[12deg] glow-green bg-green-500/10 backdrop-blur-sm">
+          <span class="text-4xl font-black text-green-400 tracking-[0.2em] uppercase">Keep</span>
+        </div>
+      `;
+
+      const deleteOverlay = document.createElement('div');
+      deleteOverlay.className = 'delete-overlay absolute inset-0 flex items-center justify-center bg-red-500/10';
+      deleteOverlay.innerHTML = `
+        <div class="border-[3px] border-red-400 rounded-2xl px-8 py-4 transform rotate-[12deg] glow-red bg-red-500/10 backdrop-blur-sm">
+          <span class="text-4xl font-black text-red-400 tracking-[0.2em] uppercase">Delete</span>
+        </div>
+      `;
+
+      card.appendChild(img);
+      card.appendChild(gradient);
+      card.appendChild(info);
+      card.appendChild(keepOverlay);
+      card.appendChild(deleteOverlay);
+
+      return card;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // ============================================================
+    // TOUCH PHYSICS & VELOCITY ENGINE
+    // ============================================================
+
+    function attachTouchEvents() {
+      const topCard = document.querySelector('.swipe-card[data-index="' + AppState.currentIndex + '"]');
+      if (!topCard) return;
+
+      topCard.addEventListener('touchstart', handleTouchStart, { passive: false });
+      topCard.addEventListener('touchmove', handleTouchMove, { passive: false });
+      topCard.addEventListener('touchend', handleTouchEnd);
+      topCard.addEventListener('touchcancel', handleTouchEnd);
+    }
+
+    function handleTouchStart(e) {
+      if (AppState.touch.isDragging) return;
+      const touch = e.touches[0];
+      AppState.touch.startX = touch.clientX;
+      AppState.touch.startY = touch.clientY;
+      AppState.touch.currentX = touch.clientX;
+      AppState.touch.currentY = touch.clientY;
+      AppState.touch.startTime = performance.now();
+      AppState.touch.isDragging = true;
+
+      const card = e.currentTarget;
+      card.classList.add('dragging');
+    }
+
+    function handleTouchMove(e) {
+      if (!AppState.touch.isDragging) return;
+      e.preventDefault();
+
+      const touch = e.touches[0];
+      const card = e.currentTarget;
+
+      AppState.touch.currentX = touch.clientX;
+      AppState.touch.currentY = touch.clientY;
+
+      const deltaX = AppState.touch.currentX - AppState.touch.startX;
+      const deltaY = AppState.touch.currentY - AppState.touch.startY;
+
+      // Physics: rotation scales with horizontal drag, subtle vertical parallax
+      const rotation = deltaX * 0.04;
+      const scale = 1 - (Math.abs(deltaX) / 10000);
+
+      card.style.transform = `translateX(${deltaX}px) translateY(${deltaY}px) rotate(${rotation}deg) scale(${scale})`;
+
+      const keepOverlay = card.querySelector('.keep-overlay');
+      const deleteOverlay = card.querySelector('.delete-overlay');
+
+      if (deltaX > 0) {
+        const opacity = Math.min(Math.abs(deltaX) / 90, 1);
+        keepOverlay.style.opacity = opacity;
+        deleteOverlay.style.opacity = 0;
+        card.classList.add('glow-green');
+        card.classList.remove('glow-red');
+      } else {
+        const opacity = Math.min(Math.abs(deltaX) / 90, 1);
+        deleteOverlay.style.opacity = opacity;
+        keepOverlay.style.opacity = 0;
+        card.classList.add('glow-red');
+        card.classList.remove('glow-green');
+      }
+    }
+
+    function handleTouchEnd(e) {
+      if (!AppState.touch.isDragging) return;
+      AppState.touch.isDragging = false;
+
+      const card = e.currentTarget;
+      card.classList.remove('dragging');
+
+      const deltaX = AppState.touch.currentX - AppState.touch.startX;
+      const deltaY = AppState.touch.currentY - AppState.touch.startY;
+      const deltaTime = Math.max(performance.now() - AppState.touch.startTime, 1); // Guard div/0
+
+      // Velocity vectors (pixels per millisecond)
+      const velocityX = Math.abs(deltaX) / deltaTime;
+      const velocityY = Math.abs(deltaY) / deltaTime;
+      const combinedVelocity = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+
+      // Adaptive thresholds for 60Hz & 120Hz responsiveness
+      const screenWidth = window.innerWidth;
+      const positionThreshold = screenWidth * 0.22;
+      const velocityThreshold = 0.45; // px/ms (~450 px/s feels snappy on high refresh)
+
+      const shouldSwipe = Math.abs(deltaX) > positionThreshold || combinedVelocity > velocityThreshold;
+
+      if (shouldSwipe && deltaX > 0) {
+        animateFlyOff(card, 'right');
+      } else if (shouldSwipe && deltaX < 0) {
+        animateFlyOff(card, 'left');
+      } else {
+        // Elastic snap-back
+        card.style.transition = 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        card.style.transform = 'translateX(0) translateY(0) rotate(0deg) scale(1)';
+        card.querySelector('.keep-overlay').style.opacity = 0;
+        card.querySelector('.delete-overlay').style.opacity = 0;
+        card.classList.remove('glow-green', 'glow-red');
+      }
+    }
+
+    function animateFlyOff(card, direction) {
+      const screenWidth = window.innerWidth;
+      const flyX = direction === 'right' ? screenWidth * 1.3 : -screenWidth * 1.3;
+      const rotation = direction === 'right' ? 25 : -25;
+
+      card.style.transition = 'transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.35s ease';
+      card.style.transform = `translateX(${flyX}px) rotate(${rotation}deg)`;
+      card.style.opacity = '0';
+
+      setTimeout(() => {
+        processCardAction(direction, card.dataset);
+        card.remove();
+        AppState.currentIndex++;
+        renderCardDeck();
+      }, 320);
+    }
+
+    async function processCardAction(direction, dataset) {
+      const imagePath = dataset.path;
+      const imageSize = parseInt(dataset.size) || 0;
+      const imageName = dataset.name || imagePath;
+
+      AppState.sessionStats.reviewed++;
+
+      if (direction === 'right') {
+        AppState.keptImages.push(imagePath);
+        AppState.sessionStats.kept++;
+        logToTerminal('ACTION:KEEP → ' + imageName, 'success');
+        addSessionLog('KEPT', imageName, imageSize);
+        showToast('Image kept', 'success');
+      } else {
+        AppState.sessionStats.deleted++;
+        AppState.sessionStats.bytesSaved += imageSize;
+        logToTerminal('ACTION:DELETE → ' + imageName, 'warn');
+        addSessionLog('DELETE', imageName, imageSize);
+        showToast('Deleting...', 'info');
+
+        const result = await deleteImageFile(imagePath);
+        if (result.success) {
+          AppState.deletedImages.push({ path: imagePath, size: imageSize, name: imageName });
+          showToast('Deleted successfully', 'success');
+        } else {
+          logToTerminal('Rollback stats for failed deletion: ' + imageName, 'error');
+          // Revert stats since file remains on disk
+          AppState.sessionStats.deleted--;
+          AppState.sessionStats.bytesSaved -= imageSize;
+        }
+      }
+    }
+
+    function addSessionLog(action, name, size) {
+      const log = document.getElementById('session-log');
+      const entry = document.createElement('div');
+      entry.className = 'flex items-center gap-3 py-2.5 px-1';
+
+      const icon = action === 'KEPT' 
+        ? '<span class="text-green-400 text-lg">→</span>' 
+        : '<span class="text-red-400 text-lg">✕</span>';
+
+      const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      entry.innerHTML = `
+        ${icon}
+        <div class="flex-1 min-w-0">
+          <div class="truncate text-[11px] ${action === 'KEPT' ? 'text-gray-300' : 'text-red-300/90'} font-medium">${name}</div>
+          <div class="text-[10px] text-gray-600 font-mono">${time}</div>
+        </div>
+        <span class="text-[10px] text-gray-600 font-mono whitespace-nowrap">${formatBytes(size)}</span>
+      `;
+
+      if (log) {
+        log.insertBefore(entry, log.firstChild);
+      }
+    }
+
+    // ============================================================
+    // RESULTS & SESSION MANAGEMENT
+    // ============================================================
+
+    function showResults() {
+      document.getElementById('space-saved').textContent = formatBytes(AppState.sessionStats.bytesSaved);
+      document.getElementById('deleted-count').textContent = AppState.sessionStats.deleted;
+      document.getElementById('kept-count').textContent = AppState.sessionStats.kept;
+      document.getElementById('reviewed-count').textContent = AppState.sessionStats.reviewed;
+      showScreen('results');
+    }
+
+    function resetSession() {
+      AppState.images = [];
+      AppState.keptImages = [];
+      AppState.deletedImages = [];
+      AppState.currentIndex = 0;
+      AppState.sessionStats = { reviewed: 0, kept: 0, deleted: 0, bytesSaved: 0 };
+      AppState.isSyncing = false;
+
+      document.getElementById('session-log').innerHTML = '';
+      document.getElementById('terminal-output').innerHTML = '<div class="terminal-line text-gray-600">> Terminal reset. Ready for new session.</div>';
+      document.getElementById('terminal-sync').innerHTML = '<div class="terminal-line text-gray-600">> Waiting for sync...</div>';
+
+      showScreen('sync');
+      logToTerminal('Session reset complete.', 'system');
+    }
+
+    // ============================================================
+    // EVENT BINDINGS
+    // ============================================================
+
+    document.getElementById('btn-sync').addEventListener('click', syncLocalGallery);
+    document.getElementById('btn-finish').addEventListener('click', showResults);
+    document.getElementById('btn-restart').addEventListener('click', resetSession);
+
+    document.getElementById('btn-export').addEventListener('click', () => {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        platform: isNative() ? 'native' : 'web',
+        stats: AppState.sessionStats,
+        keptImages: AppState.keptImages,
+        deletedImages: AppState.deletedImages
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'swipeclean-session-' + Date.now() + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      logToTerminal('Session log exported to JSON.', 'success');
+      showToast('Log exported', 'success');
+    });
+
+    // Terminal drawer
+    function toggleTerminal() {
+      AppState.terminalOpen = !AppState.terminalOpen;
+      const drawer = document.getElementById('terminal-drawer');
+      drawer.classList.toggle('translate-y-full', !AppState.terminalOpen);
+    }
+
+    document.getElementById('btn-terminal-toggle').addEventListener('click', toggleTerminal);
+    document.getElementById('btn-close-terminal').addEventListener('click', toggleTerminal);
+
+    // Prevent context menu on long press for native feel
+    document.addEventListener('contextmenu', e => {
+      if (e.target.closest('.swipe-card')) e.preventDefault();
+    });
+
+    // ============================================================
+    // BOOT SEQUENCE
+    // ============================================================
+
+    logToTerminal('SwipeClean Gallery v1.0.0 boot sequence initiated.', 'system');
+    logToTerminal('Capacitor native bridge: ' + (isNative() ? 'CONNECTED' : 'NOT DETECTED'), isNative() ? 'success' : 'warn');
+
+    if (Filesystem) {
+      logToTerminal('@capacitor/filesystem plugin registered.', 'success');
+    } else {
+      logToTerminal('@capacitor/filesystem plugin not detected. DEMO mode will be used.', 'warn');
+      logToTerminal('To enable native storage: npm install @capacitor/filesystem && npx cap sync', 'system');
+    }
+
+    if (Permissions) {
+      logToTerminal('@capacitor-community/permissions plugin registered.', 'success');
+    } else {
+      logToTerminal('Permissions plugin not detected. Relying on implicit OS grants.', 'warn');
+    }
+  </script>
+</body>
+</html>
