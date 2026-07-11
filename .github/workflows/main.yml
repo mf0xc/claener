@@ -24,17 +24,21 @@ jobs:
 
       - name: Create Cordova Project
         run: |
-          # إنشاء مشروع كوردوفا بالاسم الجديد المعبر عن التطبيق
+          # إنشاء مشروع كوردوفا بالاسم المعرف للتطبيق
           cordova create SwipeClean com.whitefoxstudios.swipeclean SwipeClean
           cd SwipeClean
           cordova platform add android
           
-          # حقن الصلاحيات مع تعريف الـ Namespace لـ android بشكل صريح لتفادي خطأ الـ XML
-          sed -i '/<\/widget>/i \    <config-file parent="/*" target="AndroidManifest.xml">\n        <uses-permission xmlns:android="http://android.com" android:name="android.permission.READ_EXTERNAL_STORAGE" />\n        <uses-permission xmlns:android="http://android.com" android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n        <uses-permission xmlns:android="http://android.com" android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n    </config-file>' config.xml
+          # حقن الصلاحيات بشكل آمن للتعامل مع الـ XML لأندرويد
+          sed -i '/<\/widget>/i \    <config-file parent="/*" target="AndroidManifest.xml">\n        <uses-permission xmlns:android="http://android.com" android:name="android.permission.READ_EXTERNAL_STORAGE" />\n        <uses-permission xmlns:android="http://android.com" android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n        <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />\n    </config-file>' config.xml
           
-          # تنظيف المجلد الافتراضي ونقل ملف الـ index.html الخاص بك
+          # تنظيف المجلد الافتراضي
           rm -rf www/*
-          cp -r ../* www/ || true
+          
+          # نسخ ملف الـ index.html بشكل دقيق ومنفصل لمنع تكرار المجلدات
+          if [ -f "../index.html" ]; then
+            cp ../index.html www/index.html
+          fi
           
           # دمج أيقونة التطبيق التلقائي إذا تم رفع صورة باسم icon.png
           if [ -f "../icon.png" ]; then
